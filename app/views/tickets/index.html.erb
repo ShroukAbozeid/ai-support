@@ -1,0 +1,21 @@
+<h1>My Support Tickets</h1>
+
+<%= link_to "New Ticket", new_ticket_path %>
+
+<% @tickets.each do |ticket| %>
+  <article>
+    <h2>
+      <%= link_to ticket.subject, ticket_path(ticket) %>
+    </h2>
+
+    <p>
+      Status:
+      <%= ticket.status.humanize %>
+    </p>
+
+    <p>
+      Priority:
+      <%= ticket.priority.humanize %>
+    </p>
+  </article>
+<% end %>

@@ -1,0 +1,38 @@
+<h1><%= @ticket.subject %></h1>
+
+<p>
+  Status:
+  <%= @ticket.status.humanize %>
+</p>
+
+<p>
+  Priority:
+  <%= @ticket.priority.humanize %>
+</p>
+
+<section>
+  <% @messages.each do |message| %>
+
+    <article>
+      <strong>
+        <%= message.role.humanize %>
+      </strong>
+
+      <p>
+        <%= message.content %>
+      </p>
+
+      <small>
+        <%= message.created_at %>
+      </small>
+    </article>
+
+  <% end %>
+</section>
+<h2>Reply</h2>
+
+<%= form_with model: [@ticket, Message.new] do |form| %>
+  <%= form.text_area :content %>
+
+  <%= form.submit "Send" %>
+<% end %>
