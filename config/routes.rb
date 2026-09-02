@@ -15,4 +15,8 @@ Rails.application.routes.draw do
 
   # Defines the root path route ("/")
   root "tickets#index"
+
+  if Rails.env.development?
+    mount MissionControl::Jobs::Engine, at: "/jobs"
+  end
 end
