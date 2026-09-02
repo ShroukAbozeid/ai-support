@@ -24,6 +24,7 @@ def create
       role: :customer,
       content: ticket_params[:message]
     )
+    ProcessSupportMessageJob.perform_later(@ticket.messages.last.id)
 
     redirect_to @ticket
   else
