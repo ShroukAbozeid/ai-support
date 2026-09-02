@@ -9,26 +9,20 @@
   Priority:
   <%= @ticket.priority.humanize %>
 </p>
+<%= turbo_stream_from @ticket %>
 
+<%= turbo_frame_tag "messages" do %>
 <section>
   <% @messages.each do |message| %>
 
     <article>
-      <strong>
-        <%= message.role.humanize %>
-      </strong>
-
-      <p>
-        <%= message.content %>
-      </p>
-
-      <small>
-        <%= message.created_at %>
-      </small>
+      <%= render partial: "messages/message", locals: { message: message } %>
     </article>
 
   <% end %>
 </section>
+<% end %>
+
 <h2>Reply</h2>
 
 <%= form_with model: [@ticket, Message.new] do |form| %>

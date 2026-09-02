@@ -2,20 +2,12 @@
 
 <%= link_to "New Ticket", new_ticket_path %>
 
-<% @tickets.each do |ticket| %>
-  <article>
-    <h2>
-      <%= link_to ticket.subject, ticket_path(ticket) %>
-    </h2>
+<%= turbo_frame_tag "tickets" do %>
 
-    <p>
-      Status:
-      <%= ticket.status.humanize %>
-    </p>
+  <% @tickets.each do |ticket| %>
+    <article>
+      <%= render partial: "ticket", locals: { ticket: ticket } %>
+    </article>
+  <% end %>
 
-    <p>
-      Priority:
-      <%= ticket.priority.humanize %>
-    </p>
-  </article>
 <% end %>

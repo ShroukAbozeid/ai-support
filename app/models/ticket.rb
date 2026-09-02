@@ -4,6 +4,8 @@ class Ticket < ApplicationRecord
   has_many :messages, dependent: :destroy
   accepts_nested_attributes_for :messages
 
+  broadcasts_to ->(ticket) { ticket }
+
   enum :status, {
     open: 0,
     in_progress: 1,

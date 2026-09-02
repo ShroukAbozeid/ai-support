@@ -1,0 +1,13 @@
+<h2>
+  <%= link_to ticket.subject, ticket_path(ticket), data: { turbo_frame: "_top" } %>
+</h2>
+
+<p>
+  Status:
+  <%= ticket.status.humanize %>
+</p>
+
+<p>
+  Priority:
+  <%= ticket.priority.humanize %>
+</p>
