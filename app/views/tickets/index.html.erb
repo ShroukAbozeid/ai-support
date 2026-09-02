@@ -6,7 +6,7 @@
 
   <% @tickets.each do |ticket| %>
     <article>
-      <%= render partial: "ticket", locals: { ticket: ticket } %>
+      <%= render partial: "ticket_mini", locals: { ticket: ticket } %>
     </article>
   <% end %>
 

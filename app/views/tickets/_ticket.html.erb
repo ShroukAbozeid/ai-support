@@ -1,13 +1,13 @@
-<h2>
-  <%= link_to ticket.subject, ticket_path(ticket), data: { turbo_frame: "_top" } %>
-</h2>
+<div id="<%= dom_id(ticket) %>">
+  <h1><%= ticket.subject %></h1>
 
-<p>
-  Status:
-  <%= ticket.status.humanize %>
-</p>
+  <p>
+    Status:
+    <%= ticket.status.humanize %>
+  </p>
 
-<p>
-  Priority:
-  <%= ticket.priority.humanize %>
-</p>
+  <p>
+    Priority:
+    <%= ticket.priority.humanize %>
+  </p>
+</div>

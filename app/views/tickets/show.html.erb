@@ -1,16 +1,5 @@
-<h1><%= @ticket.subject %></h1>
-
-<p>
-  Status:
-  <%= @ticket.status.humanize %>
-</p>
-
-<p>
-  Priority:
-  <%= @ticket.priority.humanize %>
-</p>
 <%= turbo_stream_from @ticket %>
-
+<%= render partial: "ticket", locals: { ticket: @ticket } %>
 <%= turbo_frame_tag "messages" do %>
 <section>
   <% @messages.each do |message| %>

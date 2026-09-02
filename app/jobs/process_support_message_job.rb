@@ -4,6 +4,9 @@ class ProcessSupportMessageJob < ApplicationJob
 
   def perform(message_id)
     message = Message.find(message_id)
-    Ai::SupportAgent.new(message.ticket).call
+    ticket = message.ticket
+    ticket.update!(status: :in_progress)
+    Ai::SupportAgent.new(ticket).call
+    ticket.update!(status: :waiting_for_customer)
   end
 end
