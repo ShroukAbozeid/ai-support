@@ -12,7 +12,7 @@ module Ai
         max_output_tokens: 200
         }
       )
-      content = response.dig("output", 1, "content", 0, "text")
+      content = response.deep_symbolize_keys.dig(:output, 1, :content, 0, :text)
       ticket.messages.create!(role: :assistant, content: content)
     rescue StandardError => e
       Rails.logger.error("Error processing support message: #{e.message}")

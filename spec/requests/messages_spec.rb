@@ -1,11 +1,33 @@
 require 'rails_helper'
 
 RSpec.describe "Messages", type: :request do
-  describe "GET /create" do
-    it "returns http success" do
-      get "/messages/create"
-      expect(response).to have_http_status(:success)
+  describe "post /create" do
+    let(:user) { create(:user) }
+    let(:ticket) { create(:ticket, user: user) }
+
+    before do
+      allow_any_instance_of(ApplicationController)
+        .to receive(:current_user)
+        .and_return(user)
+    end
+
+    it do
+      post ticket_messages_path(ticket), params: {
+        message: {
+          content: "I was charged twice."
+        }
+      }
+     expect(response).to redirect_to(ticket_path(ticket))
+    end
+
+    it "enqueues AI processing" do
+      expect {
+        post ticket_messages_path(ticket), params: {
+          message: {
+            content: "I was charged twice."
+          }
+        }
+      }.to have_enqueued_job(ProcessSupportMessageJob)
     end
   end
-
 end
