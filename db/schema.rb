@@ -10,17 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_01_104420) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_04_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "messages", force: :cascade do |t|
     t.text "content"
     t.datetime "created_at", null: false
+    t.string "open_ai_response_id"
+    t.bigint "reply_to_message_id"
     t.integer "role"
     t.bigint "ticket_id", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id"
+    t.index ["open_ai_response_id"], name: "index_messages_on_open_ai_response_id"
+    t.index ["reply_to_message_id"], name: "index_messages_on_reply_to_message_id", unique: true
     t.index ["ticket_id", "created_at"], name: "index_messages_on_ticket_id_and_created_at"
     t.index ["ticket_id"], name: "index_messages_on_ticket_id"
     t.index ["user_id"], name: "index_messages_on_user_id"
@@ -47,6 +51,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_01_104420) do
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
+  add_foreign_key "messages", "messages", column: "reply_to_message_id"
   add_foreign_key "messages", "tickets"
   add_foreign_key "messages", "users"
   add_foreign_key "tickets", "users"
