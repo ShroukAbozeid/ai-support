@@ -11,7 +11,6 @@ class CreateTickets < ActiveRecord::Migration[8.1]
       t.timestamps
     end
 
-    add_index :tickets, [:user_id, :status]
-
+    add_index :tickets, [ :user_id, :status ]
   end
 end
