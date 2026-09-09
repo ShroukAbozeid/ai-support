@@ -2,23 +2,20 @@ module Ai
   class SupportAgent
     MODEL = "gpt-4.1-mini"
     MAX_OUTPUT_TOKENS = 200
-    def initialize(message:, previous_response_id: nil)
+    def initialize(message:)
       @message = message
-      @previous_response_id = previous_response_id
+      @first_response = false
     end
 
     def call
-      response = Ai::Client.new.responses.create(parameters: client_params)
+      response = client.responses.create(parameters: client_params)
       response.deep_symbolize_keys!
 
       ticket.messages.create!(
         role: :assistant,
         content: response_content(response),
-        open_ai_response_id: response[:id],
         reply_to_message: message
       )
-    rescue Net::ReadTimeout
-      raise
     rescue OpenAI::Error => e
       Rails.logger.error("Error processing support message: #{e.message}")
       ticket.messages.create!(role: :app, content: "We're sorry, but we encountered an error while processing your request. Please try again later.")
@@ -26,26 +23,29 @@ module Ai
 
     private
 
-    attr_reader :message, :previous_response_id
+    attr_reader :message
     delegate :ticket, to: :message
+
+    def client
+       @client ||= Ai::Client.new
+    end
 
     def client_params
       {
         model: MODEL,
         max_output_tokens: MAX_OUTPUT_TOKENS,
+        conversation: conversation_id,
         input:,
-        previous_response_id:,
         instructions:
       }
     end
 
     def input
-      if previous_response_id.present?
-        message.content
-      else
-        ticket_summary
-      end
+      return ticket_summary if @first_response
+
+      message.content
     end
+
     def instructions
       <<~TEXT
         You are a helpful customer support agent.
@@ -73,6 +73,18 @@ module Ai
               .select { |content| content[:type] == "output_text" }
               .map { |content| content[:text] }
               .join
+    end
+
+    def conversation_id
+      ticket.open_ai_conversation_id || create_conversation_id
+    end
+
+    def create_conversation_id
+      @first_response = true
+      response = client.conversations.create(parameters: { model: MODEL })
+      ticket.update!(open_ai_conversation_id: response[:id])
+
+      response[:id]
     end
   end
 end

@@ -1,7 +1,7 @@
 module Ai
   class Client
     def initialize
-       @client = OpenAI::Client.new(
+      @client = OpenAI::Client.new(
         access_token: ENV.fetch("OPENAI_KEY"),
         log_errors: true
       )
@@ -9,6 +9,10 @@ module Ai
 
     def responses
       @client.responses
+    end
+
+    def conversations
+      @client.conversations
     end
   end
 end

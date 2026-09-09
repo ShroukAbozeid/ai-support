@@ -16,23 +16,7 @@ class ProcessSupportMessageJob < ApplicationJob
       ticket.update!(status: :in_progress)
     end
 
-    previous_response_id =
-      ticket.messages
-        .where(role: :assistant)
-        .where.not(open_ai_response_id: nil)
-        .order(created_at: :desc, id: :desc)
-        .pick(:open_ai_response_id)
-
-    Ai::SupportAgent.new(message:, previous_response_id:).call
-
-    ticket.with_lock do
-      ticket.update!(status: :waiting_for_customer)
-    end
-  rescue StandardError
-    ticket&.with_lock do
-      ticket.update!(status: :open) if ticket.in_progress?
-    end
-    raise
+    process_message(message, ticket)
   end
 
   def reschedule_job(message_id)
@@ -49,5 +33,18 @@ class ProcessSupportMessageJob < ApplicationJob
       .where(role: :customer)
       .where.not(id: answered_message_ids)
       .order(:created_at, :id)
+  end
+
+  def process_message(message, ticket)
+    Ai::SupportAgent.new(message:).call
+
+    ticket.with_lock do
+      ticket.update!(status: :waiting_for_customer)
+    end
+  rescue StandardError
+    ticket&.with_lock do
+      ticket.update!(status: :open) if ticket.in_progress?
+    end
+    raise
   end
 end
