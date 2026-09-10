@@ -12,4 +12,27 @@ RSpec.describe Ticket, type: :model do
 
     expect(ticket).to be_urgent
   end
+
+  it "supports ticket categories" do
+    ticket = build(:ticket, category: :technical)
+
+    expect(ticket).to be_technical
+  end
+
+  it "persists category and human-review classification" do
+    ticket = create(
+      :ticket,
+      category: :billing,
+      requires_human: true
+    )
+
+    expect(ticket.reload).to have_attributes(
+      category: "billing",
+      requires_human: true
+    )
+  end
+
+  it "defaults requires_human to false" do
+    expect(create(:ticket).requires_human).to be(false)
+  end
 end

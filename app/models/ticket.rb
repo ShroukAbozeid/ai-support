@@ -20,6 +20,12 @@ class Ticket < ApplicationRecord
     urgent: 3
   }, default: :medium
 
+  enum :category, {
+    billing: 0,
+    technical: 1,
+    general: 2
+  }, default: :general
+
   validates :subject, presence: true
   validates :status, presence: true
   validates :priority, presence: true

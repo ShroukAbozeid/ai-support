@@ -10,8 +10,7 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
       agent = instance_double(Ai::SupportAgent)
 
       expect(Ai::SupportAgent).to receive(:new).with(
-        message: message,
-        previous_response_id: nil
+        message: message
       ).and_return(agent)
       expect(agent).to receive(:call)
 
@@ -32,8 +31,7 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
       agent = instance_double(Ai::SupportAgent, call: nil)
 
       expect(Ai::SupportAgent).to receive(:new).with(
-        message: message,
-        previous_response_id: 'resp_previous'
+        message: message
       ).and_return(agent)
 
       described_class.new.perform(message.id)

@@ -19,14 +19,20 @@ RSpec.describe Ai::SupportAgent do
             "content" => [
               {
                 "type" => "output_text",
-                "text" => "I'm sorry about that. Let me help."
+                "text" => {
+                  category: "billing",
+                  priority: "medium",
+                  requires_human: false,
+                  message: "I'm sorry about that. Let me help."
+                }.to_json
               }
             ]
           }
         ]
       }
 
-      client = instance_double("OpenAI::Client")
+      conversations = instance_double("Conversations", create: { "id" => "conv_123" })
+      client = instance_double("OpenAI::Client", conversations: conversations)
 
       allow(Ai::Client)
         .to receive(:new)
@@ -48,17 +54,66 @@ RSpec.describe Ai::SupportAgent do
         content: "I'm sorry about that. Let me help.",
         open_ai_response_id: "resp_123"
       )
+      expect(ticket.reload.open_ai_conversation_id).to eq("conv_123")
+    end
+
+    it "requests a strict structured response using the output schema" do
+      ticket = create(:ticket)
+      message = create(:message, ticket: ticket)
+      response = {
+        "output" => [
+          {
+            "type" => "message",
+            "content" => [
+              {
+                "type" => "output_text",
+                "text" => {
+                  category: "general",
+                  priority: "medium",
+                  requires_human: false,
+                  message: "I can help with that."
+                }.to_json
+              }
+            ]
+          }
+        ]
+      }
+      responses = instance_double("Responses", create: response)
+      conversations = instance_double("Conversations", create: { "id" => "conv_schema" })
+      client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
+      allow(Ai::Client).to receive(:new).and_return(client)
+
+      described_class.new(message:).call
+
+      expect(responses).to have_received(:create).with(
+        parameters: hash_including(
+          conversation: "conv_schema",
+          text: {
+            format: {
+              type: :json_schema,
+              name: "output_schema",
+              strict: true,
+              schema: Ai::SupportAgent::OUTPUT_SCHEMA
+            }
+          }
+        )
+      )
     end
 
     it "continues an existing response conversation with the new message" do
-      ticket = create(:ticket)
+      ticket = create(:ticket, open_ai_conversation_id: "conv_previous")
       message = create(:message, ticket: ticket, content: "And what about my refund?")
       response = {
         "id" => "resp_456",
         "output" => [
           {
             "type" => "message",
-            "content" => [ { "type" => "output_text", "text" => "I can check that." } ]
+            "content" => [ { "type" => "output_text", "text" => {
+              category: "billing",
+              priority: "medium",
+              requires_human: false,
+              message: "I can check that."
+            }.to_json } ]
           }
         ]
       }
@@ -67,14 +122,14 @@ RSpec.describe Ai::SupportAgent do
 
       allow(Ai::Client).to receive(:new).and_return(client)
 
-      described_class.new(message:, previous_response_id: "resp_previous").call
+      described_class.new(message:).call
 
       expect(responses).to have_received(:create).with(
         parameters: hash_including(
           model: "gpt-4.1-mini",
           max_output_tokens: 200,
           input: message.content,
-          previous_response_id: "resp_previous",
+          conversation: "conv_previous",
           instructions: kind_of(String)
         )
       )
@@ -90,12 +145,18 @@ RSpec.describe Ai::SupportAgent do
         "output" => [
           {
             "type" => "message",
-            "content" => [ { "type" => "output_text", "text" => "A reply." } ]
+            "content" => [ { "type" => "output_text", "text" => {
+              category: "general",
+              priority: "medium",
+              requires_human: false,
+              message: "A reply."
+            }.to_json } ]
           }
         ]
       }
       responses = instance_double("Responses", create: response)
-      client = instance_double("OpenAI::Client", responses: responses)
+      conversations = instance_double("Conversations", create: { "id" => "conv_prompt" })
+      client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
       allow(Ai::Client).to receive(:new).and_return(client)
 
       described_class.new(message: current_message).call
@@ -115,7 +176,8 @@ RSpec.describe Ai::SupportAgent do
       message = create(:message)
       responses = instance_double("Responses")
       allow(responses).to receive(:create).and_raise(OpenAI::Error, "API failed")
-      client = instance_double("OpenAI::Client", responses: responses)
+      conversations = instance_double("Conversations", create: { "id" => "conv_error" })
+      client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
       allow(Ai::Client).to receive(:new).and_return(client)
 
       expect { described_class.new(message:).call }.not_to raise_error
@@ -130,7 +192,8 @@ RSpec.describe Ai::SupportAgent do
       message = create(:message)
       responses = instance_double("Responses")
       allow(responses).to receive(:create).and_raise(Net::ReadTimeout)
-      client = instance_double("OpenAI::Client", responses: responses)
+      conversations = instance_double("Conversations", create: { "id" => "conv_timeout" })
+      client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
       allow(Ai::Client).to receive(:new).and_return(client)
 
       expect { described_class.new(message:).call }.to raise_error(Net::ReadTimeout)
@@ -144,12 +207,18 @@ RSpec.describe Ai::SupportAgent do
         "output" => [
           {
             "type" => "message",
-            "content" => [ { "type" => "output_text", "text" => "A reply." } ]
+            "content" => [ { "type" => "output_text", "text" => {
+              category: "general",
+              priority: "medium",
+              requires_human: false,
+              message: "A reply."
+            }.to_json } ]
           }
         ]
       }
       responses = instance_double("Responses", create: response)
-      client = instance_double("OpenAI::Client", responses: responses)
+      conversations = instance_double("Conversations", create: { "id" => "conv_persistence" })
+      client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
       allow(Ai::Client).to receive(:new).and_return(client)
       persistence_error = ActiveRecord::RecordInvalid.new(message)
       allow(message.ticket.messages).to receive(:create!).and_raise(persistence_error)

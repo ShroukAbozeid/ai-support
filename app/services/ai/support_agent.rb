@@ -2,20 +2,27 @@ module Ai
   class SupportAgent
     MODEL = "gpt-4.1-mini"
     MAX_OUTPUT_TOKENS = 200
+    OUTPUT_SCHEMA = {
+      type: :object,
+      properties: {
+        category: { type: :string, enum: Ticket.categories.keys },
+        priority: { type: :string, enum: Ticket.priorities.keys },
+        requires_human: { type: :boolean },
+        message: { type: :string }
+      },
+      required: [ "category", "priority", "requires_human", "message" ],
+      additionalProperties: false
+    }
+
     def initialize(message:)
       @message = message
       @first_response = false
     end
 
     def call
-      response = client.responses.create(parameters: client_params)
-      response.deep_symbolize_keys!
-
-      ticket.messages.create!(
-        role: :assistant,
-        content: response_content(response),
-        reply_to_message: message
-      )
+      fetch_conversation_id
+      response = client.responses.create(parameters: client_params).deep_symbolize_keys
+      ResponseHandler.new(message:, ticket:, open_ai_response: response).call
     rescue OpenAI::Error => e
       Rails.logger.error("Error processing support message: #{e.message}")
       ticket.messages.create!(role: :app, content: "We're sorry, but we encountered an error while processing your request. Please try again later.")
@@ -23,7 +30,7 @@ module Ai
 
     private
 
-    attr_reader :message
+    attr_reader :message, :conversation_id
     delegate :ticket, to: :message
 
     def client
@@ -36,7 +43,15 @@ module Ai
         max_output_tokens: MAX_OUTPUT_TOKENS,
         conversation: conversation_id,
         input:,
-        instructions:
+        instructions:,
+        text: {
+          format: {
+            type: :json_schema,
+            name: "output_schema",
+            strict: true,
+            schema: OUTPUT_SCHEMA
+          }
+        }
       }
     end
 
@@ -66,22 +81,13 @@ module Ai
       SUMMARY
     end
 
-    def response_content(response)
-      response.fetch(:output)
-              .select { |output| output[:type] == "message" }
-              .flat_map { |output| output[:content] }
-              .select { |content| content[:type] == "output_text" }
-              .map { |content| content[:text] }
-              .join
-    end
-
-    def conversation_id
-      ticket.open_ai_conversation_id || create_conversation_id
+    def fetch_conversation_id
+      @conversation_id = ticket.open_ai_conversation_id || create_conversation_id
     end
 
     def create_conversation_id
       @first_response = true
-      response = client.conversations.create(parameters: { model: MODEL })
+      response = client.conversations.create.deep_symbolize_keys
       ticket.update!(open_ai_conversation_id: response[:id])
 
       response[:id]
