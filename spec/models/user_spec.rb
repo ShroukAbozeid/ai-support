@@ -3,6 +3,9 @@ require "rails_helper"
 RSpec.describe User, type: :model do
   it { is_expected.to have_many(:tickets).dependent(:destroy) }
   it { is_expected.to have_many(:messages).dependent(:nullify) }
+  it { is_expected.to have_many(:subscriptions).dependent(:destroy) }
+  it { is_expected.to have_many(:invoices).dependent(:destroy) }
+  it { is_expected.to have_many(:payments).dependent(:destroy) }
 
   it "requires a name" do
     user = build(:user, name: nil)
