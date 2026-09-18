@@ -115,6 +115,35 @@ RSpec.describe Ai::ResponseHandler do
         described_class.new(message:, ticket:, open_ai_response: incomplete).call
       end.to raise_error(OpenAI::Error, /Incomplete response/)
     end
+
+    it "returns tool outputs without creating an assistant message" do
+      tool_call = {
+        type: "function_call",
+        name: "lookup_invoice",
+        arguments: { invoice_number: "INV-123" }.to_json,
+        call_id: "call_123"
+      }
+      handler = instance_double(Ai::ToolsHandler, call: nil, messages: [
+        {
+          type: "function_call_output",
+          output: { status: "paid" }.to_json,
+          call_id: "call_123"
+        }
+      ])
+      allow(Ai::ToolsHandler).to receive(:new)
+        .with(user_id: ticket.user_id, tool_calls: [ tool_call ])
+        .and_return(handler)
+
+      result = described_class.new(
+        message:,
+        ticket:,
+        open_ai_response: { output: [ tool_call ] }
+      ).call
+
+      expect(result).to eq(tools_output: handler.messages)
+      expect(handler).to have_received(:call).once
+      expect(ticket.messages.where(role: :assistant)).to be_empty
+    end
   end
 
   def response_payload(text)

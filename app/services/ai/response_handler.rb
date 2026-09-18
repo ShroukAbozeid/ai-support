@@ -8,14 +8,21 @@ module Ai
 
     def call
       handle_response
-      update_ticket
-      create_support_message
     end
 
     attr_reader :message, :ticket, :open_ai_response, :response
 
-    def response_content_array
+    def response_output
       open_ai_response.fetch(:output)
+    end
+
+    def response_output_tool_call_array
+      response_output
+        .select { |output| output[:type] == "function_call" }
+    end
+
+    def response_content_array
+      response_output
         .select { |output| output[:type] == "message" }
         .flat_map { |output| output[:content] }
     end
@@ -56,7 +63,7 @@ module Ai
     def handle_response
       if incomplete_response?
         raise OpenAI::Error, "Incomplete response: max output tokens reached"
-      elsif response_content_array.blank?
+      elsif response_content_array.blank? && response_output_tool_call_array.blank?
         raise OpenAI::Error, "No output content in the response"
       elsif response_refusal.present?
         raise OpenAI::Error, "Response refused: #{response_refusal}"
@@ -64,6 +71,10 @@ module Ai
       elsif response_output_text.present?
         @response = parse_response
         validate_response!
+        update_ticket
+        create_support_message
+      elsif response_output_tool_call_array.present?
+        { tools_output: call_tools }
       else
         raise OpenAI::Error, "No output content in the response"
       end
@@ -84,6 +95,14 @@ module Ai
         reply_to_message_id: message.id,
         open_ai_response_id: open_ai_response[:id]
       )
+    end
+
+    def call_tools
+      handler =  ToolsHandler.new(
+        user_id: ticket.user_id,
+        tool_calls: response_output_tool_call_array
+      ).tap(&:call)
+      handler.messages
     end
   end
 end

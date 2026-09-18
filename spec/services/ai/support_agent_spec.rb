@@ -135,6 +135,87 @@ RSpec.describe Ai::SupportAgent do
       )
     end
 
+    it "executes a tool and sends its output before creating the final reply" do
+      ticket = create(:ticket)
+      message = create(:message, ticket: ticket, content: "What is my invoice status?")
+      tool_response = {
+        "id" => "resp_tool",
+        "output" => [
+          {
+            "type" => "function_call",
+            "name" => "lookup_invoice",
+            "arguments" => { "invoice_number" => "INV-123" }.to_json,
+            "call_id" => "call_123"
+          }
+        ]
+      }
+      final_response = {
+        "id" => "resp_final",
+        "output" => [
+          {
+            "type" => "message",
+            "content" => [ { "type" => "output_text", "text" => {
+              category: "billing",
+              priority: "medium",
+              requires_human: false,
+              message: "Your invoice is paid."
+            }.to_json } ]
+          }
+        ]
+      }
+      requests = []
+      responses = instance_double("Responses")
+      allow(responses).to receive(:create) do |parameters:|
+        requests << parameters
+        requests.one? ? tool_response : final_response
+      end
+      conversations = instance_double("Conversations", create: { "id" => "conv_tools" })
+      client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
+      allow(Ai::Client).to receive(:new).and_return(client)
+      allow(Ai::Tools::LookupInvoice).to receive(:new)
+        .with(user_id: ticket.user_id, invoice_number: "INV-123")
+        .and_return(instance_double(Ai::Tools::LookupInvoice, call: { status: "paid" }))
+
+      described_class.new(message:).call
+
+      expect(requests.size).to eq(2)
+      expect(requests.last[:input]).to include(
+        type: "function_call_output",
+        call_id: "call_123",
+        output: { status: "paid" }.to_json
+      )
+      expect(message.ticket.messages.last).to have_attributes(
+        role: "assistant",
+        content: "Your invoice is paid."
+      )
+    end
+
+    it "stops after the maximum number of tool rounds" do
+      message = create(:message)
+      tool_response = {
+        "id" => "resp_tool",
+        "output" => [
+          {
+            "type" => "function_call",
+            "name" => "lookup_invoice",
+            "arguments" => { "invoice_number" => "INV-123" }.to_json,
+            "call_id" => "call_123"
+          }
+        ]
+      }
+      responses = instance_double("Responses", create: tool_response)
+      conversations = instance_double("Conversations", create: { "id" => "conv_limit" })
+      client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
+      allow(Ai::Client).to receive(:new).and_return(client)
+      allow(Ai::Tools::LookupInvoice).to receive(:new)
+        .and_return(instance_double(Ai::Tools::LookupInvoice, call: { status: "paid" }))
+
+      expect { described_class.new(message:).call }.not_to raise_error
+
+      expect(responses).to have_received(:create).exactly(6).times
+      expect(message.ticket.messages.last).to have_attributes(role: "app")
+    end
+
     it "uses only messages through the current message in the initial prompt" do
       ticket = create(:ticket)
       earlier_message = create(:message, ticket: ticket, content: "Earlier question")
