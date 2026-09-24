@@ -64,7 +64,9 @@ bin/rails db:seed
 5. The assistant response is saved as a message and linked to the customer message that produced it.
 6. The ticket changes to `waiting_for_customer`.
 
-Transient read timeouts are retried up to three times. OpenAI API errors are logged and recorded as an application message for the customer.
+Customer messages are processed in creation order. A ticket lock prevents concurrent jobs from processing the same ticket, and a message with an existing assistant reply is skipped so duplicate job execution does not create another reply.
+
+Timeout, connection, and server failures are retried up to three attempts. If all attempts are exhausted, the job logs the failure, records an application message, and reopens the ticket. Non-retriable OpenAI and API request errors are handled the same way immediately. Other processing failures, including failures after an OpenAI response or while saving the assistant message, reopen the ticket and propagate the error for job monitoring.
 
 ## Useful Commands
 
@@ -108,7 +110,7 @@ RSpec uses the `ai_support_test` PostgreSQL database. To run tests locally, ensu
 RAILS_ENV=test bundle exec rspec
 ```
 
-The CI workflow also runs Brakeman, Bundler Audit, Importmap Audit, RuboCop, and the RSpec suite against PostgreSQL.
+The CI workflow runs Brakeman, Bundler Audit, Importmap Audit, and RuboCop, and runs the RSpec suite against PostgreSQL.
 
 ## Deployment
 
