@@ -33,9 +33,6 @@ module Ai
         response = client.responses.create(parameters: client_params(result[:tools_output])).deep_symbolize_keys
         result = ResponseHandler.new(message:, ticket:, open_ai_response: response).call
       end
-    rescue OpenAI::Error => e
-      Rails.logger.error("Error processing support message: #{e.message}")
-      ticket.messages.create!(role: :app, content: "We're sorry, but we encountered an error while processing your request. Please try again later.")
     end
 
     private

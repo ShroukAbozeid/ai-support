@@ -1,17 +1,36 @@
 class ProcessSupportMessageJob < ApplicationJob
   queue_as :default
-  retry_on Net::ReadTimeout, wait: 5.seconds, attempts: 3
+  retry_on Net::ReadTimeout,
+           Faraday::TimeoutError,
+           Net::OpenTimeout,
+           Timeout::Error,
+           Faraday::RequestTimeoutError,
+           Faraday::ConnectionFailed,
+           Faraday::ServerError,
+            wait: 5.seconds, attempts: 3, report: true
+  after_discard do |job, exception|
+    job.handle_failure(exception)
+  end
+
+  NON_RETRIABLE_EXCEPTIONS = [
+    OpenAI::Error, Faraday::BadRequestError, Faraday::UnauthorizedError,
+    Faraday::ForbiddenError, Faraday::UnprocessableContentError
+  ]
 
   def perform(message_id)
     message = Message.find(message_id)
     ticket = message.ticket
+    return if message.reply.present?
 
     ticket.with_lock do
       return reschedule_job(message_id) if ticket.in_progress?
-      return if message.reply_to_message_id.present?
 
       first_pending_message = pending_messages(ticket).first
-      return reschedule_job(message_id) unless first_pending_message == message
+      if first_pending_message && first_pending_message.id != message_id
+        reschedule_job(5.seconds, first_pending_message.id) # make sure pending messages gets processed
+        reschedule_job(message_id)
+        return
+      end
 
       ticket.update!(status: :in_progress)
     end
@@ -19,8 +38,8 @@ class ProcessSupportMessageJob < ApplicationJob
     process_message(message, ticket)
   end
 
-  def reschedule_job(message_id)
-    ProcessSupportMessageJob.set(wait: 10.seconds).perform_later(message_id)
+  def reschedule_job(wait = 10.seconds, message_id)
+    ProcessSupportMessageJob.set(wait:).perform_later(message_id)
   end
 
   def pending_messages(ticket)
@@ -41,10 +60,26 @@ class ProcessSupportMessageJob < ApplicationJob
     ticket.with_lock do
       ticket.update!(status: :waiting_for_customer)
     end
-  rescue StandardError
+  rescue *NON_RETRIABLE_EXCEPTIONS => e
+    Rails.logger.error("Error processing support message: #{e.message}")
+    ticket.messages.create!(role: :app, content: "We're sorry, but we encountered an error while processing your request. Please try again later.")
+    reopen_ticket(ticket)
+  rescue StandardError => e
+    reopen_ticket(ticket)
+    raise e
+  end
+
+  def reopen_ticket(ticket)
     ticket&.with_lock do
       ticket.update!(status: :open) if ticket.in_progress?
     end
-    raise
+  end
+
+  def handle_failure(exception)
+    message = Message.find(arguments.first)
+    ticket = message.ticket
+    Rails.logger.error("Error processing support message: #{exception.message}")
+    ticket.messages.create!(role: :app, content: "We're sorry, but we encountered an error while processing your request. Please try again later.")
+    reopen_ticket(ticket)
   end
 end

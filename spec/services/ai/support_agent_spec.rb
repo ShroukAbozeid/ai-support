@@ -210,10 +210,9 @@ RSpec.describe Ai::SupportAgent do
       allow(Ai::Tools::LookupInvoice).to receive(:new)
         .and_return(instance_double(Ai::Tools::LookupInvoice, call: { status: "paid" }))
 
-      expect { described_class.new(message:).call }.not_to raise_error
+      expect { described_class.new(message:).call }.to raise_error(OpenAI::Error)
 
       expect(responses).to have_received(:create).exactly(6).times
-      expect(message.ticket.messages.last).to have_attributes(role: "app")
     end
 
     it "uses only messages through the current message in the initial prompt" do
@@ -253,7 +252,7 @@ RSpec.describe Ai::SupportAgent do
       expect(earlier_message).to be_persisted
     end
 
-    it "creates an app message for an OpenAI error" do
+    it "propagates an OpenAI error to the job" do
       message = create(:message)
       responses = instance_double("Responses")
       allow(responses).to receive(:create).and_raise(OpenAI::Error, "API failed")
@@ -261,12 +260,8 @@ RSpec.describe Ai::SupportAgent do
       client = instance_double("OpenAI::Client", conversations: conversations, responses: responses)
       allow(Ai::Client).to receive(:new).and_return(client)
 
-      expect { described_class.new(message:).call }.not_to raise_error
-
-      expect(message.ticket.messages.last).to have_attributes(
-        role: "app",
-        content: include("encountered an error")
-      )
+      expect { described_class.new(message:).call }.to raise_error(OpenAI::Error, "API failed")
+      expect(message.ticket.messages.where(role: :app)).to be_empty
     end
 
     it "propagates timeouts so the job can retry" do
