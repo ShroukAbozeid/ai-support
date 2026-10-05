@@ -1,4 +1,5 @@
 module Ai
+  # SHOULD NOT be called on it's own, call ProcessSupportMessageJob instead
   class SupportAgent
     MODEL = "gpt-4.1-mini"
     MAX_OUTPUT_TOKENS = 200
@@ -19,11 +20,29 @@ module Ai
     def initialize(message:)
       @message = message
       @first_response = false
+      @ai_run = message.ai_run
     end
 
     def call
-      fetch_conversation_id
-      response = client.responses.create(parameters: client_params(user_input)).deep_symbolize_keys
+      response = create_or_retrieve_response
+      process_response(response)
+    end
+
+    private
+
+    attr_reader :message, :conversation_id, :ai_run
+    delegate :ticket, to: :message
+
+    def create_or_retrieve_response
+      if ai_run.open_ai_response_id.nil?
+        fetch_conversation_id
+        client.responses.create(parameters: client_params(user_input)).deep_symbolize_keys
+      else
+        ResponseRetriver.new(ai_run:).call
+      end
+    end
+
+    def process_response(response)
       result = ResponseHandler.new(message:, ticket:, open_ai_response: response).call
       tool_rounds = 0
       while result[:tools_output]
@@ -34,11 +53,6 @@ module Ai
         result = ResponseHandler.new(message:, ticket:, open_ai_response: response).call
       end
     end
-
-    private
-
-    attr_reader :message, :conversation_id
-    delegate :ticket, to: :message
 
     def client
       @client ||= Ai::Client.new
@@ -135,6 +149,7 @@ module Ai
 
     def fetch_conversation_id
       @conversation_id = ticket.open_ai_conversation_id || create_conversation_id
+      ai_run.set_conversation_id!(conversation_id)
     end
 
     def create_conversation_id

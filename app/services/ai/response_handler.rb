@@ -61,6 +61,8 @@ module Ai
     end
 
     def handle_response
+      message.ai_run.set_response_id!(open_ai_response[:id])
+
       if incomplete_response?
         raise OpenAI::Error, "Incomplete response: max output tokens reached"
       elsif response_content_array.blank? && response_output_tool_call_array.blank?
@@ -70,6 +72,7 @@ module Ai
         # TODO: should we show the refusal message to the user? or just log it?
       elsif response_output_text.present?
         @response = parse_response
+        message.ai_run.complete!
         validate_response!
         update_ticket
         create_support_message

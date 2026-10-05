@@ -2,7 +2,11 @@ require 'rails_helper'
 
 RSpec.describe Ai::ResponseHandler do
   let(:ticket) { create(:ticket, category: :general, priority: :low) }
-  let(:message) { create(:message, ticket: ticket) }
+  let(:message) do
+    create(:message, ticket: ticket).tap do |message|
+      create(:ai_run, message: message)
+    end
+  end
   let(:response_text) do
     {
       category: "technical",

@@ -17,6 +17,8 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
       described_class.new.perform(message.id)
 
       expect(ticket.reload.status).to eq('waiting_for_customer')
+      expect(message.reload.ai_run).to be_processing
+      expect(message.ai_run.started_at).to be_present
     end
 
     it 'passes the latest assistant response ID to the agent' do
@@ -94,6 +96,11 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
       expect { described_class.new.perform(message.id) }.not_to raise_error
 
       expect(ticket.reload).to be_open
+      expect(message.reload.ai_run).to have_attributes(
+        status: 'failed',
+        error_type: 'OpenAI::Error',
+        error_message: 'API failed'
+      )
       expect(ticket.messages.where(role: :app).last.content).to include('encountered an error')
     end
 
@@ -120,10 +127,18 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
       expect { job.perform(message.id) }.to raise_error(Net::ReadTimeout)
       expect(ticket.reload).to be_open
       expect(ticket.messages.where(role: :app)).to be_empty
+      expect(message.reload.ai_run).to have_attributes(
+        status: 'processing',
+        error_type: 'Net::ReadTimeout'
+      )
 
       described_class.after_discard_procs.first.call(job, Net::ReadTimeout.new)
 
       expect(ticket.reload).to be_open
+      expect(message.reload.ai_run).to have_attributes(
+        status: 'failed',
+        error_type: 'Net::ReadTimeout'
+      )
       expect(ticket.messages.where(role: :app).last.content).to include('encountered an error')
     end
 
@@ -149,6 +164,10 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
 
       expect(responses).to have_received(:create)
       expect(ticket.reload).to be_open
+      expect(message.reload.ai_run).to have_attributes(
+        status: 'completed',
+        error_type: 'ActiveRecord::RecordInvalid'
+      )
     end
 
     it 'reopens the ticket when saving the assistant message fails' do
@@ -175,6 +194,10 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
 
       expect(responses).to have_received(:create)
       expect(ticket.reload).to be_open
+      expect(message.reload.ai_run).to have_attributes(
+        status: 'completed',
+        error_type: 'ActiveRecord::RecordInvalid'
+      )
     end
 
     it 'processes multiple customer messages in creation order' do
@@ -220,6 +243,17 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
       expect(ticket.reload).to be_waiting_for_customer
     end
 
+    it 'does not recreate an existing AI run when processing is retried' do
+      ai_run = create(:ai_run, message: message)
+      allow(Ai::SupportAgent).to receive(:new).and_raise(Net::ReadTimeout)
+
+      expect { described_class.new.perform(message.id) }.to raise_error(Net::ReadTimeout)
+
+      expect(message.reload.ai_run).to eq(ai_run)
+      expect(AiRun.where(message: message).count).to eq(1)
+      expect(ai_run.reload).to be_processing
+    end
+
     it 'reschedules the second of two concurrent jobs' do
       started = Queue.new
       release = Queue.new
@@ -241,6 +275,20 @@ RSpec.describe ProcessSupportMessageJob, type: :job do
       release << true
       first_job.join
       expect(ticket.reload).to be_waiting_for_customer
+    end
+
+    it 'ignores customer messages that already have replies when selecting pending work' do
+      answered_message = create(:message, ticket: ticket, user: user)
+      create(
+        :message,
+        ticket: ticket,
+        user: nil,
+        role: :assistant,
+        content: 'Answered.',
+        reply_to_message: answered_message
+      )
+
+      expect(described_class.new.pending_messages(ticket)).to eq([ message ])
     end
   end
 end

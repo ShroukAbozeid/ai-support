@@ -10,9 +10,23 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_17_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_29_102325) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "ai_runs", force: :cascade do |t|
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.text "error_message"
+    t.string "error_type"
+    t.bigint "message_id", null: false
+    t.string "open_ai_conversation_id"
+    t.string "open_ai_response_id"
+    t.datetime "started_at"
+    t.integer "status"
+    t.datetime "updated_at", null: false
+    t.index ["message_id"], name: "index_ai_runs_on_message_id", unique: true
+  end
 
   create_table "invoice_items", force: :cascade do |t|
     t.decimal "amount", precision: 12, scale: 2, null: false
@@ -113,6 +127,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_120000) do
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
+  add_foreign_key "ai_runs", "messages"
   add_foreign_key "invoice_items", "invoices"
   add_foreign_key "invoices", "subscriptions"
   add_foreign_key "invoices", "users"

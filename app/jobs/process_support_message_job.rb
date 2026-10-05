@@ -9,7 +9,7 @@ class ProcessSupportMessageJob < ApplicationJob
            Faraday::ServerError,
             wait: 5.seconds, attempts: 3, report: true
   after_discard do |job, exception|
-    job.handle_failure(exception)
+    job.handle_discard(exception)
   end
 
   NON_RETRIABLE_EXCEPTIONS = [
@@ -32,6 +32,7 @@ class ProcessSupportMessageJob < ApplicationJob
         return
       end
 
+      message.create_ai_run! if message.ai_run.nil?
       ticket.update!(status: :in_progress)
     end
 
@@ -55,18 +56,15 @@ class ProcessSupportMessageJob < ApplicationJob
   end
 
   def process_message(message, ticket)
+    message.ai_run.start!
     Ai::SupportAgent.new(message:).call
-
-    ticket.with_lock do
-      ticket.update!(status: :waiting_for_customer)
-    end
-  rescue *NON_RETRIABLE_EXCEPTIONS => e
-    Rails.logger.error("Error processing support message: #{e.message}")
-    ticket.messages.create!(role: :app, content: "We're sorry, but we encountered an error while processing your request. Please try again later.")
+    finalize_ticket(ticket)
+  rescue *NON_RETRIABLE_EXCEPTIONS => exception
+    handle_failure(message:, ticket:, exception:)
+  rescue StandardError => exception
+    message.ai_run.set_error!(error_type: exception.class.name, error_message: exception.message)
     reopen_ticket(ticket)
-  rescue StandardError => e
-    reopen_ticket(ticket)
-    raise e
+    raise exception
   end
 
   def reopen_ticket(ticket)
@@ -75,11 +73,23 @@ class ProcessSupportMessageJob < ApplicationJob
     end
   end
 
-  def handle_failure(exception)
-    message = Message.find(arguments.first)
-    ticket = message.ticket
+  def finalize_ticket(ticket)
+    ticket.with_lock do
+      ticket.update!(status: :waiting_for_customer)
+    end
+  end
+
+  def handle_failure(message:, ticket:, exception:)
     Rails.logger.error("Error processing support message: #{exception.message}")
+    message.ai_run.fail!(error_type: exception.class.name, error_message: exception.message)
     ticket.messages.create!(role: :app, content: "We're sorry, but we encountered an error while processing your request. Please try again later.")
     reopen_ticket(ticket)
+  end
+
+  def handle_discard(exception)
+    Rails.logger.error("Job discarded due to: #{exception.message}")
+    message = Message.find(arguments.first)
+    ticket = message.ticket
+    handle_failure(message:, ticket:, exception:)
   end
 end

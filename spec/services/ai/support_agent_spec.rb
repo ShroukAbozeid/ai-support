@@ -9,6 +9,8 @@ RSpec.describe Ai::SupportAgent do
         role: :customer,
         content: "I was charged twice."
       )
+      message = ticket.messages.last
+      create(:ai_run, message:)
 
       response = {
         "id" => "resp_123",
@@ -47,7 +49,7 @@ RSpec.describe Ai::SupportAgent do
           )
         )
 
-      described_class.new(message: ticket.messages.last).call
+      described_class.new(message:).call
 
       expect(ticket.messages.last).to have_attributes(
         role: "assistant",
@@ -60,6 +62,7 @@ RSpec.describe Ai::SupportAgent do
     it "requests a strict structured response using the output schema" do
       ticket = create(:ticket)
       message = create(:message, ticket: ticket)
+      create(:ai_run, message:)
       response = {
         "output" => [
           {
@@ -103,6 +106,7 @@ RSpec.describe Ai::SupportAgent do
     it "continues an existing response conversation with the new message" do
       ticket = create(:ticket, open_ai_conversation_id: "conv_previous")
       message = create(:message, ticket: ticket, content: "And what about my refund?")
+      create(:ai_run, message:)
       response = {
         "id" => "resp_456",
         "output" => [
@@ -135,9 +139,47 @@ RSpec.describe Ai::SupportAgent do
       )
     end
 
+    it "retrieves and handles a response already recorded on the AI run" do
+      message = create(:message)
+      ai_run = create(
+        :ai_run,
+        message: message,
+        open_ai_response_id: "resp_retry",
+        open_ai_conversation_id: "conv_retry"
+      )
+      response = {
+        "id" => "resp_retry",
+        "output" => [
+          {
+            "type" => "message",
+            "content" => [ { "type" => "output_text", "text" => {
+              category: "general",
+              priority: "low",
+              requires_human: false,
+              message: "Here is the recovered reply."
+            }.to_json } ]
+          }
+        ]
+      }
+      responses = instance_double("Responses", retrieve: response)
+      client = instance_double("OpenAI::Client", responses: responses)
+      allow(Ai::Client).to receive(:new).and_return(client)
+      expect(responses).not_to receive(:create)
+
+      described_class.new(message:).call
+
+      expect(responses).to have_received(:retrieve).with(response_id: "resp_retry")
+      expect(ai_run.reload).to be_completed
+      expect(message.reply).to have_attributes(
+        content: "Here is the recovered reply.",
+        open_ai_response_id: "resp_retry"
+      )
+    end
+
     it "executes a tool and sends its output before creating the final reply" do
       ticket = create(:ticket)
       message = create(:message, ticket: ticket, content: "What is my invoice status?")
+      create(:ai_run, message:)
       tool_response = {
         "id" => "resp_tool",
         "output" => [
@@ -192,6 +234,7 @@ RSpec.describe Ai::SupportAgent do
 
     it "stops after the maximum number of tool rounds" do
       message = create(:message)
+      create(:ai_run, message:)
       tool_response = {
         "id" => "resp_tool",
         "output" => [
@@ -219,6 +262,7 @@ RSpec.describe Ai::SupportAgent do
       ticket = create(:ticket)
       earlier_message = create(:message, ticket: ticket, content: "Earlier question")
       current_message = create(:message, ticket: ticket, content: "Current question")
+      create(:ai_run, message: current_message)
       create(:message, ticket: ticket, content: "Later question")
       response = {
         "id" => "resp_prompt",
@@ -254,6 +298,7 @@ RSpec.describe Ai::SupportAgent do
 
     it "propagates an OpenAI error to the job" do
       message = create(:message)
+      create(:ai_run, message:)
       responses = instance_double("Responses")
       allow(responses).to receive(:create).and_raise(OpenAI::Error, "API failed")
       conversations = instance_double("Conversations", create: { "id" => "conv_error" })
@@ -266,6 +311,7 @@ RSpec.describe Ai::SupportAgent do
 
     it "propagates timeouts so the job can retry" do
       message = create(:message)
+      create(:ai_run, message:)
       responses = instance_double("Responses")
       allow(responses).to receive(:create).and_raise(Net::ReadTimeout)
       conversations = instance_double("Conversations", create: { "id" => "conv_timeout" })
@@ -278,6 +324,7 @@ RSpec.describe Ai::SupportAgent do
 
     it "does not hide assistant message persistence failures" do
       message = create(:message)
+      create(:ai_run, message:)
       response = {
         "id" => "resp_789",
         "output" => [
